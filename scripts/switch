@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+flake_root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+result_link="$flake_root/result"
+system_profile="/nix/var/nix/profiles/system"
+nix_env="/nix/var/nix/profiles/default/bin/nix-env"
+
+case "$#" in
+  0)
+    configuration="$(nix eval --raw --file "$flake_root/user.nix" configurationName)"
+    ;;
+  1)
+    configuration="$1"
+    ;;
+  *)
+    printf 'usage: %s [CONFIGURATION]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
+printf '\n[system build]\n'
+nix build \
+  "$flake_root#darwinConfigurations.$configuration.system" \
+  --out-link "$result_link" \
+  --print-build-logs
+
+system="$(/usr/bin/readlink "$result_link")"
+case "$system" in
+  /nix/store/*-darwin-system-*)
+    ;;
+  *)
+    printf 'Unexpected Darwin system path: %s\n' "$system" >&2
+    exit 1
+    ;;
+esac
+test -x "$system/sw/bin/darwin-rebuild"
+test -x "$nix_env"
+printf 'system: %s\n' "$system"
+
+printf '\n[system activation]\n'
+sudo "$system/sw/bin/darwin-rebuild" activate
+
+printf '\n[system profile registration]\n'
+sudo -H "$nix_env" \
+  --profile "$system_profile" \
+  --set "$system"
+
+printf '\n[post-switch validation]\n'
+current_system="$(/usr/bin/readlink /run/current-system)"
+generation_link="$(/usr/bin/readlink "$system_profile")"
+case "$generation_link" in
+  /*)
+    generation_path="$generation_link"
+    ;;
+  *)
+    generation_path="$(dirname "$system_profile")/$generation_link"
+    ;;
+esac
+registered_system="$(/usr/bin/readlink "$generation_path")"
+printf 'current system:    %s\n' "$current_system"
+printf 'registered system: %s\n' "$registered_system"
+test "$current_system" = "$system"
+test "$registered_system" = "$system"
+
+printf '\nSwitch completed and registered the active system.\n'

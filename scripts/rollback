@@ -1,0 +1,141 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  printf 'usage: %s GENERATION\n' "$0" >&2
+  exit 2
+fi
+
+target_generation="$1"
+case "$target_generation" in
+  "" | 0 | *[!0-9]*)
+    printf 'Generation must be a positive integer: %s\n' "$target_generation" >&2
+    exit 2
+    ;;
+esac
+
+system_profile="/nix/var/nix/profiles/system"
+nix_env="/nix/var/nix/profiles/default/bin/nix-env"
+restore_needed=0
+
+resolve_registered_system() {
+  generation_link="$(/usr/bin/readlink "$system_profile")"
+  case "$generation_link" in
+    /*)
+      generation_path="$generation_link"
+      ;;
+    *)
+      generation_path="$(dirname "$system_profile")/$generation_link"
+      ;;
+  esac
+  /usr/bin/readlink "$generation_path"
+}
+
+validate_system() {
+  expected_system="$1"
+  active_system="$(/usr/bin/readlink /run/current-system)"
+  registered_system="$(resolve_registered_system)"
+  printf 'current system:    %s\n' "$active_system"
+  printf 'registered system: %s\n' "$registered_system"
+  test "$active_system" = "$expected_system"
+  test "$registered_system" = "$expected_system"
+}
+
+restore_previous_system() {
+  printf '\n[restore generation %s]\n' "$previous_generation"
+  restore_failed=0
+
+  if ! sudo "$previous_system/sw/bin/darwin-rebuild" activate; then
+    printf 'Failed to reactivate generation %s.\n' "$previous_generation" >&2
+    restore_failed=1
+  fi
+
+  if ! sudo -H "$nix_env" \
+    --profile "$system_profile" \
+    --switch-generation "$previous_generation"
+  then
+    printf 'Failed to register generation %s.\n' "$previous_generation" >&2
+    restore_failed=1
+  fi
+
+  if [ "$restore_failed" -eq 0 ] && validate_system "$previous_system"; then
+    restore_needed=0
+    return 0
+  fi
+
+  printf '\nAutomatic restoration did not complete. Run these recovery commands:\n' >&2
+  printf '  sudo %s activate\n' "$previous_system/sw/bin/darwin-rebuild" >&2
+  printf '  sudo -H %s --profile %s --switch-generation %s\n' \
+    "$nix_env" "$system_profile" "$previous_generation" >&2
+  return 1
+}
+
+cleanup() {
+  original_status="$?"
+  trap - EXIT HUP INT TERM
+  if [ "$restore_needed" -eq 1 ]; then
+    printf '\n[automatic restoration after incomplete rollback]\n' >&2
+    if ! restore_previous_system; then
+      exit 1
+    fi
+  fi
+  exit "$original_status"
+}
+
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
+
+test -x "$nix_env"
+previous_system="$(/usr/bin/readlink /run/current-system)"
+registered_system="$(resolve_registered_system)"
+test "$previous_system" = "$registered_system"
+
+previous_link="$(/usr/bin/readlink "$system_profile")"
+previous_name="$(basename "$previous_link")"
+case "$previous_name" in
+  system-*-link)
+    previous_generation="${previous_name#system-}"
+    previous_generation="${previous_generation%-link}"
+    ;;
+  *)
+    printf 'Unexpected system profile link: %s\n' "$previous_link" >&2
+    exit 1
+    ;;
+esac
+
+target_link="${system_profile}-${target_generation}-link"
+if [ ! -L "$target_link" ]; then
+  printf 'System generation %s does not exist.\n' "$target_generation" >&2
+  printf 'Run just generations to list retained generations.\n' >&2
+  exit 1
+fi
+target_system="$(/usr/bin/readlink "$target_link")"
+case "$target_system" in
+  /nix/store/*-darwin-system-*)
+    ;;
+  *)
+    printf 'Unexpected Darwin system path: %s\n' "$target_system" >&2
+    exit 1
+    ;;
+esac
+test -x "$target_system/sw/bin/darwin-rebuild"
+
+printf '\n[rollback preflight]\n'
+printf 'current generation: %s\n' "$previous_generation"
+printf 'current system:     %s\n' "$previous_system"
+printf 'target generation:  %s\n' "$target_generation"
+printf 'target system:      %s\n' "$target_system"
+sudo -v
+
+printf '\n[activate generation %s]\n' "$target_generation"
+restore_needed=1
+sudo "$target_system/sw/bin/darwin-rebuild" activate
+sudo -H "$nix_env" \
+  --profile "$system_profile" \
+  --switch-generation "$target_generation"
+
+printf '\n[rollback validation]\n'
+validate_system "$target_system"
+restore_needed=0
+
+printf '\nRollback to generation %s completed.\n' "$target_generation"
