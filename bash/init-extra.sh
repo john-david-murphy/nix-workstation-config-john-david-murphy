@@ -62,14 +62,34 @@ NORM='\[\033[01;00;0m\]'
 GRAY='\[\033[1;30m\]'
 LIGHT_GRAY='\[\033[0;37m\]'
 
-for _f in /run/current-system/sw/share/git/contrib/completion/git-prompt.sh \
+# Under nix-darwin with home-manager as a module, per-user packages live in
+# /etc/profiles/per-user/$USER -- NOT ~/.nix-profile. That is where git's
+# contrib scripts actually are on this machine.
+for _f in "/etc/profiles/per-user/$USER/share/git/contrib/completion/git-prompt.sh" \
+          /run/current-system/sw/share/git/contrib/completion/git-prompt.sh \
           "$HOME/.nix-profile/share/git/contrib/completion/git-prompt.sh" \
           "$HOMEBREW_PREFIX/etc/bash_completion.d/git-prompt.sh" \
           "$HOMEBREW_PREFIX/opt/git/etc/bash_completion.d/git-prompt.sh"; do
     if [[ -r $_f ]]; then . "$_f"; break; fi
 done
 unset _f
+
+# Last resort: derive it from wherever git itself resolves to.
+if ! type __git_ps1 >/dev/null 2>&1; then
+    _gitshare="$(dirname -- "$(dirname -- "$(command -v git)")")/share/git"
+    [[ -r "$_gitshare/contrib/completion/git-prompt.sh" ]] &&
+        . "$_gitshare/contrib/completion/git-prompt.sh"
+    unset _gitshare
+fi
+
 type __git_ps1 >/dev/null 2>&1 || __git_ps1() { :; }
+
+# Branch plus a dirty-state marker. Unset these if the extra `git status`
+# call per prompt ever feels slow in a large working tree.
+GIT_PS1_SHOWDIRTYSTATE=1
+GIT_PS1_SHOWSTASHSTATE=1
+GIT_PS1_SHOWUNTRACKEDFILES=
+GIT_PS1_SHOWUPSTREAM=auto
 
 PS1="\n${WHITE}\u@\h ${YELLOW}\w${GREEN}\$(__git_ps1)\n${NORM}$ "
 

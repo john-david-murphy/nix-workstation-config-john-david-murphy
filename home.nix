@@ -15,9 +15,19 @@ in {
     gitContributor = user.gitContributor;
   };
 
-  programs.git.settings.user = {
-    email = user.email;
-    name = user.fullName;
+  programs.git.settings = {
+    user = {
+      email = user.email;
+      name = user.fullName;
+    };
+
+    # Short, always-terminal output regardless of what LESS says. Belt and
+    # braces alongside the LESS fix below.
+    pager = {
+      branch = false;
+      tag = false;
+      stash = false;
+    };
   };
 
   # Login shell is bash (see host.nix). Home Manager writes ~/.bashrc,
@@ -39,6 +49,8 @@ in {
       gentags = "ctags -R && cscope -b -q -R";
       plot = "gnuplot -p -e \"plot '<cat'\"";
       config = "git --git-dir=$HOME/.cfg/ --work-tree=$HOME";
+      n = "nix";
+      nd = "nix develop";
     };
 
     # Kept on programs.bash rather than home.sessionVariables: the latter is
@@ -46,7 +58,11 @@ in {
     sessionVariables = {
       EDITOR = "nvim";
       MANWIDTH = "100";
-      LESS = "--mouse --wheel-lines=3 --ignore-case";
+      # -F (quit if one screen) and -R (pass colour through) are what git
+      # sets for its own pager, but only when LESS is unset. Exporting LESS
+      # without them is why `git branch` sits in the pager instead of
+      # printing and exiting.
+      LESS = "--quit-if-one-screen --RAW-CONTROL-CHARS --mouse --wheel-lines=3 --ignore-case";
     };
 
     profileExtra = builtins.readFile ./bash/profile-extra.sh;
