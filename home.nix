@@ -1,4 +1,4 @@
-{...}: let
+{pkgs, ...}: let
   user = import ./user.nix;
 in {
   home = {
@@ -6,6 +6,17 @@ in {
     homeDirectory = user.homeDirectory;
     stateVersion = user.homeStateVersion;
   };
+
+  home.packages = [
+    # Real ctags. macOS ships an Xcode/BSD stub at /usr/bin/ctags that fails
+    # on --version. Useful only for the non-Rust parts of the tree (OCaml,
+    # Bazel/Starlark, TS) -- rust-analyzer resolves macros and trait impls
+    # that a tags file cannot see.
+    pkgs.universal-ctags
+    # Structural (AST) search. monoclonal already ships sgconfig.yml, so the
+    # team keeps rules under dev/ast-grep-rules.
+    pkgs.ast-grep
+  ];
 
   onechronos.development = {
     enable = true;
@@ -46,11 +57,17 @@ in {
       m = "make -j$(sysctl -n hw.ncpu)";
       diff = "diff -W $(( $(tput cols) - 2 ))";
       gcl = "git clone";
-      gentags = "ctags -R && cscope -b -q -R";
+      # No cscope: it has no Rust parser at all. Rust is excluded because
+      # rust-analyzer covers it properly; this indexes the OCaml/Java/TS/
+      # Starlark parts of the tree, and skips build output.
+      gentags = "ctags -R --exclude=target --exclude='bazel-*' --exclude=node_modules --exclude=.direnv --exclude=.git --languages=-Rust .";
       plot = "gnuplot -p -e \"plot '<cat'\"";
       config = "git --git-dir=$HOME/.cfg/ --work-tree=$HOME";
       n = "nix";
       nd = "nix develop";
+      asg = "ast-grep";
+      asgr = "ast-grep run --lang rust --pattern";
+      asgs = "ast-grep scan";
     };
 
     # Kept on programs.bash rather than home.sessionVariables: the latter is
@@ -58,14 +75,14 @@ in {
     sessionVariables = {
       EDITOR = "nvim";
       MANWIDTH = "100";
-      # -F (quit if one screen) and -R (pass colour through) are what git
-      # sets for its own pager, but only when LESS is unset. Exporting LESS
-      # without them is why `git branch` sits in the pager instead of
-      # printing and exiting.
       # Silence direnv's per-directory dump of every exported variable.
       # Use "direnv: %s" instead if you want to keep the "loading" line.
       DIRENV_LOG_FORMAT = "";
 
+      # -F (quit if one screen) and -R (pass colour through) are what git
+      # sets for its own pager, but only when LESS is unset. Exporting LESS
+      # without them is why `git branch` sits in the pager instead of
+      # printing and exiting.
       LESS = "--quit-if-one-screen --RAW-CONTROL-CHARS --mouse --wheel-lines=3 --ignore-case";
     };
 
