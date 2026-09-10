@@ -62,6 +62,10 @@ in {
       # sets for its own pager, but only when LESS is unset. Exporting LESS
       # without them is why `git branch` sits in the pager instead of
       # printing and exiting.
+      # Silence direnv's per-directory dump of every exported variable.
+      # Use "direnv: %s" instead if you want to keep the "loading" line.
+      DIRENV_LOG_FORMAT = "";
+
       LESS = "--quit-if-one-screen --RAW-CONTROL-CHARS --mouse --wheel-lines=3 --ignore-case";
     };
 
