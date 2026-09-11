@@ -16,6 +16,9 @@ in {
     # Structural (AST) search. monoclonal already ships sgconfig.yml, so the
     # team keeps rules under dev/ast-grep-rules.
     pkgs.ast-grep
+    # Required by nvim-treesitter's `main` branch, which generates parsers
+    # with the CLI rather than shipping pre-generated C like master did.
+    pkgs.tree-sitter
   ];
 
   onechronos.development = {
